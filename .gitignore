@@ -1,0 +1,19 @@
+# Raw probe records and the reference library are observations, not source.
+runs/
+refs/
+
+# Local environments and caches
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+.DS_Store
+.env
+.env.*
+dist/
+build/
+
+# Local paper drafts, research notes, benchmark code and observations.
+/report/

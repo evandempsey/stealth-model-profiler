@@ -1,0 +1,78 @@
+name: Check distributions
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - run: python -m pip install build twine ruff
+      - run: ruff check src tests
+      - name: Build release archives
+        run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          python -m build
+      - run: python -m twine check --strict dist/*
+      - name: Smoke test the source distribution
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m pip install "$GITHUB_WORKSPACE"/dist/*.tar.gz
+          python -m pip check
+          stealth-model-profiler --help
+      - name: Check release tag against built metadata
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python - <<'PY'
+          import os
+          from importlib.metadata import version
+          expected = "v" + version("stealth-model-profiler")
+          if os.environ["GITHUB_REF_NAME"] != expected:
+              raise SystemExit(f"Expected release tag {expected}")
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: distributions
+          path: dist/
+          if-no-files-found: error
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13', '3.14', '3.15']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: distributions
+          path: dist
+      - name: Test the installed wheel
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m pip install "$GITHUB_WORKSPACE"/dist/*.whl pytest
+          python -m pip check
+          python -m pytest -q "$GITHUB_WORKSPACE/tests"
+          stealth-model-profiler --help
+      - name: Build the family index with the installed CLI
+        if: matrix.python == '3.13'
+        working-directory: ${{ runner.temp }}
+        run: stealth-model-profiler family-refs
